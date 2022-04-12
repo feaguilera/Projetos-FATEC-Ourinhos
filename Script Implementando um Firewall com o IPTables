@@ -1,0 +1,142 @@
+#! /bin/sh
+
+
+### BEGIN INIT INFO
+# Provides:	sshd
+# Required-Start:      $remote_fs $syslog 
+# Required-Stop:      $remote_fs $syslog 
+# Default-Start: 2 3 4 5
+# Default-Stop:
+# Short-Description: OpenBSD Secure Shell server 
+### END INIT INFO
+
+
+FIREWALL="192.168.200.1,172.17.0.1"
+
+
+DMZ="192.168.200.0/24" 
+WWW="192.168.200.3"
+DNS="192.168.200.2" 
+
+
+LAN="172.17.0.0/24" 
+SAMBA="172.17.0.2"
+echo "================================================="
+echo "	TERA 3 OPÇOES		" 
+echo "[1]   Start		"
+echo "[2]   Stop		-" echo "[3]   Restart 	 		"
+echo "================================================="
+echo "	Escolha uma das tres opcçoes	" echo $t #$t comentario só pular uma linh
+echo $t
+echo "	-----MODO DE USO-----	"
+echo $t
+echo "./firewall start" 
+echo "./firewall stop" 
+echo "./firewall restart" echo $t
+echo "Para mais detalhes sobre o script vizualize ele" 
+echo $t
+echo $t 
+case $1 in
+      stop)
+          #Modifica politica padrão de entrada para ACCEPT 
+          iptables -P INPUT ACCEPT
+
+          #Modificar politica padrão de saída para ACCEPT 
+          iptables -P OUTPUT ACCEPT
+
+          #Modificar politica padrão de passagem de pacotes para ACCEPT 
+          iptables -P FORWARD ACCEPT
+
+          #Limpar todas as cadeias da tabela filter 
+          iptables -F
+
+          #Limpar todas as cadeias da tabela NAT 
+          iptables -F -t nat
+ 
+    ;;
+    
+    start)
+ 
+          #	-Tabela Filter	#
+
+
+          iptables -P INPUT DROP
+          #Liberar acesso SSH da máquina física
+          iptables -A INPUT -p tcp --dport 22 -s 192.168.56.1 -j ACCEPT 
+          iptables -A OUTPUT -p tcp --sport 22 -d 192.168.56.1 -j ACCEPT
+
+
+
+          #Bloquear todo o pacote de entrada do firewall 
+          iptables -P INPUT DROP
+
+          #Bloqueando todo o pacote que saí pela interface do firewall 
+          iptables -P OUTPUT DROP
+
+          #Bloquear todo o pacote que passa pelo firewall 
+          iptables -P FORWARD DROP
+          
+          #Liberar acesso HTTP e HTTPS para as máquinas da DMZ e Rede 
+          iptables -A FORWARD -p tcp -m multiport --dports 80,443 -s
+ 
+$LAN,$DMZ -j ACCEPT
+
+          #Liberar pacotes na cadeia Forward que sejam estabelicidos e relacionados 
+ 
+          iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+ 
+
+
+          #Liberar acesso SSH Rede Interna --> FIREWALL 
+          iptables -A INPUT -p tcp --dport 22 -s $LAN -j ACCEPT 
+          iptables -A OUTPUT -p tcp --sport 22 -d $LAN -j ACCEPT
+ 
+
+          #Liberar pacotes ICMP Rede Interna --> FIREWALL 
+          iptables -A INPUT -p icmp -s $LAN -j ACCEPT 
+          iptables -A OUTPUT -p icmp -d $LAN -j ACCEPT
+
+ 
+ 
+          #Liberar consultas DNS SAMBA4 --> DNS
+          iptables -A FORWARD -p udp --dport 53 -s $SAMBA -d $DNS -j ACCEPT
+ 
+
+
+          #Liberar consultas DNS host DNS --> Internet
+          iptables -A FORWARD -p udp --dport 53 -s $DNS -o eth3 -j ACCEPT
+
+
+          #Liberar SSH Rede Interna aos servidores DNS e WWW na rede DMZ 
+          iptables -A FORWARD -p tcp --dport 22 -s $LAN -d $DNS,$WWW -j ACCEPT
+ 
+
+
+
+
+         #Liberar HTTP, HTTPS e MySQL rede interna --> Host www
+         iptables -A FORWARD -p tcp -m multiport --dports 80,443,3306 -s $LAN -d $WWW -j ACCEPT
+
+
+         #	-Tabela Nat 	 	#
+         iptables -t nat -A POSTROUTING -p tcp -m multiport --dports 80,443 -s $LAN,$DMZ -o eth3 -j MASQUERADE
+         iptables -t nat -A POSTROUTING -p udp --dport 53 -s $DNS -o eth3 -j MASQUERADE
+  ;;
+
+
+ 
+  restart)
+         $0 stop sleep 0.5
+         $0 start
+         
+  ;;
+  
+*)
+         echo 'Por favor utilize "start|stop|restart"'
+
+  ;;
+Esac
+ 
+
+
+
